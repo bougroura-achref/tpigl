@@ -1,79 +1,56 @@
 """
-Sample Buggy Code #1 - Calculator Module
-This file contains intentional code quality issues for testing The Refactoring Swarm.
+Calculator Module.
 
-Issues include:
-- Missing docstrings
-- Unused imports
-- Poor variable naming
-- Missing type hints
-- Line too long
-- Bare except clauses
+This module provides basic arithmetic operations and a Calculator class.
 """
 
-import os
-import sys
-import json
-import random
+from typing import Optional, Union
 
-def add(a,b):
-    return a+b
+Number = Union[int, float]
 
-def subtract(a,b):
-    return a-b
+def add(a: Number, b: Number) -> Number:
+    """Add two numbers."""
+    return a + b
 
-def multiply(a,b):
-    return a*b
+def subtract(a: Number, b: Number) -> Number:
+    """Subtract b from a."""
+    return a - b
 
-def divide(a,b):
+def multiply(a: Number, b: Number) -> Number:
+    """Multiply two numbers."""
+    return a * b
+
+def divide(a: Number, b: Number) -> Optional[float]:
+    """
+    Divide a by b.
+    
+    Returns None if b is zero.
+    """
     try:
-        return a/b
-    except:
+        return a / b
+    except ZeroDivisionError:
         return None
 
-class calculator:
-    def __init__(self):
-        self.result=0
-        self.x=0
-        self.y=0
+class Calculator:
+    """A simple calculator class to store and manipulate a pair of values."""
     
-    def set_values(self,a,b):
-        self.x=a
-        self.y=b
+    def __init__(self) -> None:
+        """Initialize the Calculator."""
+        self.result: Number = 0
+        self.x: Number = 0
+        self.y: Number = 0
     
-    def add_values(self):
-        self.result=self.x+self.y
+    def set_values(self, a: Number, b: Number) -> None:
+        """Set the values for operation."""
+        self.x = a
+        self.y = b
+    
+    def add_values(self) -> Number:
+        """Add the stored values."""
+        self.result = self.x + self.y
         return self.result
     
-    def subtract_values(self):
-        self.result=self.x-self.y
+    def subtract_values(self) -> Number:
+        """Subtract the stored values."""
+        self.result = self.x - self.y
         return self.result
-    
-    def multiply_values(self):
-        self.result=self.x*self.y
-        return self.result
-    
-    def divide_values(self):
-        try:
-            self.result=self.x/self.y
-        except:
-            self.result=None
-        return self.result
-    
-    def calculate_complex_expression_with_very_long_method_name_that_exceeds_line_length_limits(self,a,b,c,d):
-        return (a+b)*(c-d)/(a*b+c*d)
-
-def process_data(data):
-    result=[]
-    for i in range(len(data)):
-        item=data[i]
-        if item>0:
-            result.append(item*2)
-        elif item<0:
-            result.append(item*-1)
-        else:
-            result.append(0)
-    return result
-
-l=[1,2,3,4,5]
-r=process_data(l)
