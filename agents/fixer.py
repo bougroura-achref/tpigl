@@ -7,7 +7,7 @@ import os
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from prompts.fixer_prompt import (
@@ -37,11 +37,11 @@ class FixerAgent:
             temperature: LLM temperature (lower = more deterministic)
             verbose: Enable verbose output
         """
-        self.model_name = model_name or os.getenv("MODEL_NAME", "gemini-2.5-flash")
+        self.model_name = model_name or os.getenv("MODEL_NAME", "claude-sonnet-4-20250514")
         self.temperature = temperature
         self.verbose = verbose
         
-        self.llm = ChatGoogleGenerativeAI(
+        self.llm = ChatAnthropic(
             model=self.model_name,
             temperature=self.temperature
         )

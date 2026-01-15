@@ -91,11 +91,11 @@ def validate_target_dir(target_dir: str) -> Path:
 
 
 def validate_api_key():
-    """Validate that Google API key is configured."""
-    api_key = os.getenv("GOOGLE_API_KEY")
+    """Validate that Anthropic API key is configured."""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
     
-    if not api_key or api_key == "your_google_api_key_here":
-        console.print("[red]❌ Error: GOOGLE_API_KEY not configured[/red]")
+    if not api_key or api_key == "your_anthropic_api_key_here":
+        console.print("[red]❌ Error: ANTHROPIC_API_KEY not configured[/red]")
         console.print("[yellow]   Please set your API key in the .env file[/yellow]")
         sys.exit(1)
     

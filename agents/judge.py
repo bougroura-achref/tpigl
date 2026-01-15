@@ -7,7 +7,7 @@ import os
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from prompts.judge_prompt import (
@@ -39,11 +39,11 @@ class JudgeAgent:
             temperature: LLM temperature
             verbose: Enable verbose output
         """
-        self.model_name = model_name or os.getenv("MODEL_NAME", "gemini-2.5-flash")
+        self.model_name = model_name or os.getenv("MODEL_NAME", "claude-sonnet-4-20250514")
         self.temperature = temperature
         self.verbose = verbose
         
-        self.llm = ChatGoogleGenerativeAI(
+        self.llm = ChatAnthropic(
             model=self.model_name,
             temperature=self.temperature
         )
@@ -227,16 +227,18 @@ class JudgeAgent:
             str: Final verdict (SUCCESS, RETRY, or FAILURE)
         """
         tests_pass = test_results.get("success", False)
-        score_improved = new_score >= original_score
+        score_improved = new_score > original_score
         score_good = new_score >= 8.0
         
         # SUCCESS conditions
         if tests_pass and (score_improved or score_good):
             return "SUCCESS"
         
-        # If no tests exist, rely on score
+        # If no tests exist, rely on score - require actual improvement or good score
         if test_results.get("total_tests", 0) == 0:
-            if score_improved and new_score >= original_score:
+            if score_good:
+                return "SUCCESS"
+            if score_improved:
                 return "SUCCESS"
             return "RETRY"
         

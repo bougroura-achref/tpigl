@@ -26,8 +26,8 @@ def check_dependencies():
     required_packages = [
         ("langchain", "langchain"),
         ("langgraph", "langgraph"),
-        ("langchain_google_genai", "langchain-google-genai"),
-        ("google.generativeai", "google-generativeai"),
+        ("langchain_anthropic", "langchain-anthropic"),
+        ("anthropic", "anthropic"),
         ("pylint", "pylint"),
         ("pytest", "pytest"),
         ("dotenv", "python-dotenv"),
@@ -60,12 +60,12 @@ def check_env_file():
     from dotenv import load_dotenv
     load_dotenv()
     
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if api_key and api_key != "your_google_api_key_here":
-        print("   ✅ GOOGLE_API_KEY configured")
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if api_key and api_key != "your_anthropic_api_key_here":
+        print("   ✅ ANTHROPIC_API_KEY configured")
         return True
     else:
-        print("   ⚠️  GOOGLE_API_KEY not set or using default value")
+        print("   ⚠️  ANTHROPIC_API_KEY not set or using default value")
         return False
 
 
