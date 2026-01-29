@@ -1,8 +1,17 @@
 """
-Refactoring Graph - LangGraph workflow for agent orchestration
+Refactoring Graph - LangGraph workflow for agent orchestration.
+Improvements:
+- Proper TypedDict state
+- Error log size limits
+- Checkpoint support
+- Better logging
 """
 
-from typing import Dict, Any, Literal, Optional
+from __future__ import annotations
+
+import logging
+from typing import Dict, Any, Literal, Optional, List, TypedDict, TYPE_CHECKING
+
 from pathlib import Path
 
 from langgraph.graph import StateGraph, END
@@ -10,7 +19,44 @@ from langgraph.graph import StateGraph, END
 from agents import AuditorAgent, FixerAgent, JudgeAgent
 from tools.file_tools import list_python_files
 from logging_system.telemetry import TelemetryLogger
-from .state import SwarmState, FileState, FileStatus, WorkflowStatus
+from config import get_config
+
+if TYPE_CHECKING:
+    from .state import SwarmState
+
+logger = logging.getLogger(__name__)
+
+# Maximum error logs to keep per file to prevent memory issues
+MAX_ERROR_LOGS = 50
+
+
+class FileStateDict(TypedDict, total=False):
+    """Type definition for file state."""
+    path: str
+    status: str
+    original_score: float
+    current_score: float
+    issues: List[Dict[str, Any]]
+    refactoring_plan: List[Dict[str, Any]]
+    fix_iterations: int
+    changes_made: List[str]
+    error_logs: List[str]
+    tests_passed: bool
+    verdict: str
+
+
+class GraphState(TypedDict, total=False):
+    """Type definition for graph state."""
+    target_dir: str
+    files: Dict[str, FileStateDict]
+    pending_files: List[str]
+    current_file: Optional[str]
+    iteration: int
+    max_iterations: int
+    status: str
+    initial_pylint_score: float
+    final_pylint_score: float
+    tests_passed: bool
 
 
 class RefactoringGraph:
@@ -42,6 +88,7 @@ class RefactoringGraph:
         self.verbose = verbose
         self.telemetry = telemetry
         self.dry_run = dry_run
+        self.config = get_config()
         
         # Initialize agents
         self.auditor = AuditorAgent(verbose=verbose)
@@ -58,8 +105,8 @@ class RefactoringGraph:
         Returns:
             StateGraph: Compiled workflow graph
         """
-        # Define the state graph
-        workflow = StateGraph(dict)
+        # Define the state graph with typed dict
+        workflow = StateGraph(GraphState)
         
         # Add nodes
         workflow.add_node("initialize", self._initialize_node)
@@ -91,19 +138,19 @@ class RefactoringGraph:
         
         return workflow.compile()
     
-    def _initialize_node(self, state: dict) -> dict:
+    def _initialize_node(self, state: GraphState) -> GraphState:
         """Initialize the workflow state"""
         if self.verbose:
-            print("\n🚀 Initializing refactoring workflow...")
+            logger.info("Initializing refactoring workflow...")
         
         # Discover Python files
         python_files = list_python_files(str(self.target_dir))
         
         if self.verbose:
-            print(f"   Found {len(python_files)} Python files")
+            logger.info(f"Found {len(python_files)} Python files")
         
         # Initialize file states
-        files = {}
+        files: Dict[str, FileStateDict] = {}
         for file_path in python_files:
             files[file_path] = {
                 "path": file_path,
@@ -135,7 +182,7 @@ class RefactoringGraph:
             "status": "initialized"
         }
     
-    def _analyze_node(self, state: dict) -> dict:
+    def _analyze_node(self, state: GraphState) -> GraphState:
         """Run the Auditor on the current file"""
         current_file = state.get("current_file")
         
@@ -143,7 +190,7 @@ class RefactoringGraph:
             return {**state, "status": "no_files"}
         
         if self.verbose:
-            print(f"\n📊 Analyzing: {current_file}")
+            logger.info(f"Analyzing: {current_file}")
         
         # Run auditor analysis
         result = self.auditor.analyze_file(current_file, str(self.target_dir))
@@ -169,11 +216,17 @@ class RefactoringGraph:
                 })
         else:
             state["files"][current_file]["status"] = "analysis_failed"
-            state["files"][current_file]["error_logs"].append(result.get("error", "Unknown error"))
+            self._append_error_log(state["files"][current_file], result.get("error", "Unknown error"))
         
         return state
     
-    def _fix_node(self, state: dict) -> dict:
+    def _append_error_log(self, file_state: FileStateDict, error: str) -> None:
+        """Append error to log with size limit to prevent memory issues."""
+        file_state["error_logs"].append(error)
+        if len(file_state["error_logs"]) > MAX_ERROR_LOGS:
+            file_state["error_logs"] = file_state["error_logs"][-MAX_ERROR_LOGS:]
+    
+    def _fix_node(self, state: GraphState) -> GraphState:
         """Run the Fixer on the current file"""
         current_file = state.get("current_file")
         
@@ -184,7 +237,7 @@ class RefactoringGraph:
         
         if self.verbose:
             iteration = file_state.get("fix_iterations", 0) + 1
-            print(f"\n🔧 Fixing (iteration {iteration}): {current_file}")
+            logger.info(f"Fixing (iteration {iteration}): {current_file}")
         
         # Check if this is a retry
         if file_state.get("fix_iterations", 0) > 0:
@@ -192,7 +245,7 @@ class RefactoringGraph:
             result = self.fixer.fix_with_feedback(
                 file_path=current_file,
                 sandbox_dir=str(self.target_dir),
-                error_logs="\n".join(file_state.get("error_logs", [])),
+                error_logs="\n".join(file_state.get("error_logs", [])[-10:]),  # Limit to last 10 errors
                 previous_changes=file_state.get("changes_made", []),
                 iteration=file_state["fix_iterations"] + 1,
                 max_iterations=self.max_iterations,
@@ -211,22 +264,22 @@ class RefactoringGraph:
         if result["success"]:
             file_state["status"] = "fixed"
             file_state["fix_iterations"] += 1
-            file_state["changes_made"].extend(result.get("changes_made", []))
+            file_state["changes_made"].extend(result.get("changes_made", result.get("new_changes", [])))
             
             if self.telemetry:
                 self.telemetry.log_event("file_fixed", {
                     "file": current_file,
                     "iteration": file_state["fix_iterations"],
-                    "changes": result.get("changes_made", [])
+                    "changes": result.get("changes_made", result.get("new_changes", []))
                 })
         else:
-            file_state["error_logs"].append(result.get("error", "Fix failed"))
+            self._append_error_log(file_state, result.get("error", "Fix failed"))
             file_state["fix_iterations"] += 1
         
         state["files"][current_file] = file_state
         return state
     
-    def _evaluate_node(self, state: dict) -> dict:
+    def _evaluate_node(self, state: GraphState) -> GraphState:
         """Run the Judge to evaluate the fixes"""
         current_file = state.get("current_file")
         
@@ -236,7 +289,7 @@ class RefactoringGraph:
         file_state = state["files"][current_file]
         
         if self.verbose:
-            print(f"\n⚖️  Evaluating: {current_file}")
+            logger.info(f"Evaluating: {current_file}")
         
         # Run judge evaluation
         result = self.judge.evaluate_file(
@@ -256,7 +309,7 @@ class RefactoringGraph:
             if result["verdict"] == "RETRY":
                 feedback = result.get("feedback_for_fixer", "")
                 if feedback:
-                    file_state["error_logs"].append(feedback)
+                    self._append_error_log(file_state, feedback)
             
             if self.telemetry:
                 self.telemetry.log_event("file_evaluated", {
@@ -268,14 +321,14 @@ class RefactoringGraph:
                 })
         else:
             file_state["verdict"] = "RETRY"
-            file_state["error_logs"].append(result.get("error", "Evaluation failed"))
+            self._append_error_log(file_state, result.get("error", "Evaluation failed"))
         
         state["files"][current_file] = file_state
         state["iteration"] = state.get("iteration", 0) + 1
         
         return state
     
-    def _should_continue(self, state: dict) -> Literal["continue", "next_file", "end"]:
+    def _should_continue(self, state: GraphState) -> Literal["continue", "next_file", "end"]:
         """Decide whether to continue, move to next file, or end"""
         current_file = state.get("current_file")
         
@@ -319,10 +372,10 @@ class RefactoringGraph:
         # RETRY - continue fixing
         return "continue"
     
-    def _finalize_node(self, state: dict) -> dict:
+    def _finalize_node(self, state: GraphState) -> GraphState:
         """Finalize the workflow and calculate metrics"""
         if self.verbose:
-            print("\n📊 Finalizing refactoring workflow...")
+            logger.info("Finalizing refactoring workflow...")
         
         # Calculate final metrics
         total_original = 0.0
@@ -336,10 +389,11 @@ class RefactoringGraph:
             if file_state.get("verdict") == "SUCCESS":
                 success_count += 1
         
-        if file_count > 0:
-            state["initial_pylint_score"] = round(total_original / file_count, 2)
-            state["final_pylint_score"] = round(total_final / file_count, 2)
+        initial_score = round(total_original / file_count, 2) if file_count > 0 else 0.0
+        final_score = round(total_final / file_count, 2) if file_count > 0 else 0.0
         
+        state["initial_pylint_score"] = initial_score
+        state["final_pylint_score"] = final_score
         state["tests_passed"] = success_count == file_count
         state["status"] = "success" if state["tests_passed"] else "partial"
         
@@ -348,18 +402,16 @@ class RefactoringGraph:
                 "status": state["status"],
                 "files_processed": file_count,
                 "files_successful": success_count,
-                "initial_score": state.get("initial_pylint_score", 0),
-                "final_score": state.get("final_pylint_score", 0)
+                "initial_score": initial_score,
+                "final_score": final_score
             })
         
         if self.verbose:
-            print(f"   Status: {state['status']}")
-            print(f"   Files: {success_count}/{file_count} successful")
-            print(f"   Score: {state.get('initial_pylint_score', 0)} -> {state.get('final_pylint_score', 0)}")
+            logger.info(f"Status: {state['status']}, Files: {success_count}/{file_count}, Score: {initial_score} -> {final_score}")
         
         return state
     
-    def run(self, initial_state: SwarmState) -> SwarmState:
+    def run(self, initial_state) -> "SwarmState":
         """
         Run the refactoring workflow.
         
@@ -369,15 +421,20 @@ class RefactoringGraph:
         Returns:
             SwarmState: Final state after workflow completion
         """
+        from .state import SwarmState
+        
         # Convert SwarmState to dict for graph processing
-        state_dict = {
+        state_dict: GraphState = {
             "target_dir": initial_state.target_dir,
             "max_iterations": initial_state.max_iterations,
             "iteration": 0,
             "status": "running",
             "files": {},
             "pending_files": [],
-            "current_file": None
+            "current_file": None,
+            "initial_pylint_score": 0.0,
+            "final_pylint_score": 0.0,
+            "tests_passed": False
         }
         
         # Run the graph
