@@ -1,9 +1,14 @@
 """
-Telemetry Logger - Centralized logging for The Refactoring Swarm
+Telemetry Logger - Centralized logging for The Refactoring Swarm.
 Captures all events and outputs experiment_data.json as required.
+Improvements:
+- Auto-save to prevent data loss
+- Consistent model naming
+- Better error tracking
 """
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -34,8 +39,8 @@ class ExperimentData:
     target_directory: str = ""
     max_iterations: int = 10
     
-    # Configuration
-    llm_model: str = "gemini-2.5-flash"
+    # Configuration - use environment variable for model
+    llm_model: str = field(default_factory=lambda: os.getenv("MODEL_NAME", "claude-sonnet-4-20250514"))
     tools_used: List[str] = field(default_factory=list)
     
     # Results
@@ -105,6 +110,7 @@ class TelemetryLogger:
         # Internal tracking
         self._event_count = 0
         self._start_time = datetime.now()
+        self._auto_save_interval = 10  # Save every 10 events
     
     def _generate_experiment_id(self) -> str:
         """Generate a unique experiment ID"""
@@ -130,9 +136,24 @@ class TelemetryLogger:
         
         self.data.agent_logs.append(log_entry)
         
+        # Auto-save every N events to prevent data loss
+        if self._event_count % self._auto_save_interval == 0:
+            self._quick_save()
+        
         # Also log to console in verbose mode
         if details.get("verbose"):
             print(f"  [LOG] {event_type}: {details}")
+    
+    def _quick_save(self) -> None:
+        """Quick save to temporary file to prevent data loss."""
+        try:
+            temp_path = self.log_dir / "experiment_data_temp.json"
+            data_dict = asdict(self.data)
+            data_dict["duration_seconds"] = (datetime.now() - self._start_time).total_seconds()
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                json.dump(data_dict, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass  # Silently fail on quick save
     
     def log_agent_action(
         self,

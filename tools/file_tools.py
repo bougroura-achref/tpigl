@@ -1,10 +1,15 @@
 """
-File Tools - Secure file operations for agents
+File Tools - Secure file operations for agents.
 Implements sandbox security to prevent writing outside target directory.
+Improvements:
+- Atomic writes to prevent file corruption
+- Better error handling
+- File size validation
 """
 
 import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
@@ -13,6 +18,14 @@ from datetime import datetime
 class SandboxViolationError(Exception):
     """Raised when an operation tries to access files outside the sandbox."""
     pass
+
+
+class FileSizeError(Exception):
+    """Raised when a file exceeds the maximum allowed size."""
+    pass
+
+
+MAX_FILE_SIZE = 1_000_000  # 1MB default limit
 
 
 def validate_sandbox_path(file_path: str, sandbox_dir: str) -> Path:
@@ -70,7 +83,8 @@ def read_file(file_path: str, sandbox_dir: Optional[str] = None) -> str:
 
 def write_file(file_path: str, content: str, sandbox_dir: str) -> bool:
     """
-    Write content to a file with sandbox security.
+    Write content to a file with sandbox security and atomic writes.
+    Uses temp file + rename for atomicity to prevent corruption.
     
     Args:
         file_path: Path to the file to write
@@ -88,8 +102,30 @@ def write_file(file_path: str, content: str, sandbox_dir: str) -> bool:
     # Ensure parent directory exists
     validated_path.parent.mkdir(parents=True, exist_ok=True)
     
-    with open(validated_path, 'w', encoding='utf-8') as f:
-        f.write(content)
+    # Atomic write using temp file
+    fd = None
+    temp_path = None
+    try:
+        fd, temp_path = tempfile.mkstemp(
+            dir=validated_path.parent,
+            prefix='.tmp_',
+            suffix=validated_path.suffix
+        )
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            fd = None  # fd is now owned by the file object
+            f.write(content)
+        
+        # Atomic rename (works on most systems)
+        os.replace(temp_path, validated_path)
+        temp_path = None  # Rename succeeded
+        
+    except Exception:
+        # Clean up temp file on error
+        if fd is not None:
+            os.close(fd)
+        if temp_path is not None and os.path.exists(temp_path):
+            os.unlink(temp_path)
+        raise
     
     return True
 

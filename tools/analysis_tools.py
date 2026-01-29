@@ -5,6 +5,7 @@ Analysis Tools - Pylint integration for code quality analysis
 import subprocess
 import json
 import re
+import sys
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from io import StringIO
@@ -31,20 +32,40 @@ def run_pylint(file_path: str, additional_args: Optional[List[str]] = None) -> D
             "messages": []
         }
     
-    # Build pylint command
-    cmd = [
-        "python", "-m", "pylint",
+    # Build pylint command - use sys.executable to ensure correct Python
+    # First run: get score with text format
+    score_cmd = [
+        sys.executable, "-m", "pylint",
         str(path),
-        "--output-format=json",
         "--reports=y"
     ]
     
+    # Second run: get detailed messages with JSON format
+    json_cmd = [
+        sys.executable, "-m", "pylint",
+        str(path),
+        "--output-format=json"
+    ]
+    
     if additional_args:
-        cmd.extend(additional_args)
+        score_cmd.extend(additional_args)
+        json_cmd.extend(additional_args)
     
     try:
-        result = subprocess.run(
-            cmd,
+        # Run for score (text format includes score in output)
+        score_result = subprocess.run(
+            score_cmd,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        # Extract score from text output (could be in stdout or stderr)
+        score = extract_pylint_score(score_result.stdout + score_result.stderr)
+        
+        # Run for JSON messages
+        json_result = subprocess.run(
+            json_cmd,
             capture_output=True,
             text=True,
             timeout=60
@@ -52,23 +73,20 @@ def run_pylint(file_path: str, additional_args: Optional[List[str]] = None) -> D
         
         # Parse JSON output
         messages = []
-        if result.stdout:
+        if json_result.stdout:
             try:
-                messages = json.loads(result.stdout)
+                messages = json.loads(json_result.stdout)
             except json.JSONDecodeError:
                 # Try to extract messages from non-JSON output
                 messages = []
-        
-        # Extract score from stderr (pylint outputs score there)
-        score = extract_pylint_score(result.stderr)
         
         return {
             "success": True,
             "score": score,
             "messages": messages,
-            "raw_output": result.stdout,
-            "raw_error": result.stderr,
-            "return_code": result.returncode
+            "raw_output": json_result.stdout,
+            "raw_error": score_result.stdout + score_result.stderr,
+            "return_code": json_result.returncode
         }
         
     except subprocess.TimeoutExpired:

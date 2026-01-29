@@ -91,7 +91,9 @@ pip install -r requirements.txt
 # Copy example environment file
 cp .env.example .env
 
-# Edit .env and add your Google Gemini API key
+# Edit .env and add your API key (either Anthropic or Google Gemini)
+# ANTHROPIC_API_KEY=sk-ant-... (for Claude models)
+# GOOGLE_API_KEY=... (for Gemini models)
 ```
 
 ### 3. Validate Setup
