@@ -1,13 +1,18 @@
 """
-Judge Agent - Validates refactored code through testing
+Judge Agent - Validates refactored code through testing.
+Improvements:
+- Shared JSON parsing utility
+- LLM retry logic with exponential backoff
+- Configurable thresholds
+- Proper logging
 """
 
 import json
+import logging
 import os
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from prompts.judge_prompt import (
@@ -18,6 +23,12 @@ from prompts.judge_prompt import (
 from tools.file_tools import read_file
 from tools.analysis_tools import run_pylint, get_pylint_score
 from tools.test_tools import run_pytest, get_test_results, format_test_report
+from utils.response_parser import parse_llm_json_response
+from utils.retry_handler import retry_llm_call
+from utils.llm_factory import get_llm
+from config import get_config
+
+logger = logging.getLogger(__name__)
 
 
 class JudgeAgent:
@@ -29,26 +40,43 @@ class JudgeAgent:
         self,
         model_name: str = None,
         temperature: float = 0.1,
-        verbose: bool = False
+        verbose: bool = False,
+        success_score_threshold: float = None,
+        regression_threshold: float = None
     ):
         """
         Initialize the Judge Agent.
         
         Args:
-            model_name: Gemini model to use
+            model_name: LLM model to use
             temperature: LLM temperature
             verbose: Enable verbose output
+            success_score_threshold: Minimum score for success (default: 8.0)
+            regression_threshold: Score drop that triggers failure (default: 2.0)
         """
-        self.model_name = model_name or os.getenv("MODEL_NAME", "claude-sonnet-4-20250514")
+        config = get_config()
+        self.model_name = model_name or config.llm.model_name
         self.temperature = temperature
         self.verbose = verbose
         
-        self.llm = ChatAnthropic(
-            model=self.model_name,
-            temperature=self.temperature
+        # Configurable thresholds
+        self.success_score_threshold = success_score_threshold or config.agents.judge_success_score_threshold
+        self.regression_threshold = regression_threshold or config.agents.judge_regression_threshold
+        self.require_tests_pass = config.agents.judge_require_tests_pass
+        
+        self.llm = get_llm(
+            model_name=self.model_name,
+            temperature=self.temperature,
+            timeout=config.llm.timeout
         )
         
         self.system_prompt = JUDGE_SYSTEM_PROMPT
+    
+    @retry_llm_call(max_attempts=3, initial_delay=2.0)
+    def _call_llm(self, messages: List) -> str:
+        """Call LLM with retry logic."""
+        response = self.llm.invoke(messages)
+        return response.content
     
     def evaluate_file(
         self,
@@ -70,7 +98,7 @@ class JudgeAgent:
             dict: Evaluation result with verdict
         """
         if self.verbose:
-            print(f"  ⚖️  Judge evaluating: {file_path}")
+            logger.info(f"Judge evaluating: {file_path}")
         
         try:
             # Get new pylint score
@@ -92,16 +120,22 @@ class JudgeAgent:
                 score_diff=round(new_score - original_score, 2)
             )
             
-            # Call LLM for evaluation
+            # Call LLM for evaluation with retry
             messages = [
                 SystemMessage(content=self.system_prompt),
                 HumanMessage(content=eval_prompt)
             ]
             
-            response = self.llm.invoke(messages)
+            response_content = self._call_llm(messages)
             
-            # Parse evaluation
-            evaluation = self._parse_response(response.content)
+            # Parse evaluation using shared utility
+            evaluation = parse_llm_json_response(
+                response_content,
+                fallback={
+                    "verdict": "RETRY",
+                    "feedback_for_fixer": "Unable to parse evaluation"
+                }
+            )
             
             # Determine verdict based on rules
             verdict = self._determine_verdict(
@@ -112,9 +146,7 @@ class JudgeAgent:
             )
             
             if self.verbose:
-                print(f"    Score: {original_score} -> {new_score}")
-                print(f"    Tests: {test_results.get('passed', 0)}/{test_results.get('total_tests', 0)} passed")
-                print(f"    Verdict: {verdict}")
+                logger.info(f"Score: {original_score} -> {new_score}, Tests: {test_results.get('passed', 0)}/{test_results.get('total_tests', 0)}, Verdict: {verdict}")
             
             return {
                 "success": True,
@@ -134,8 +166,7 @@ class JudgeAgent:
             }
             
         except Exception as e:
-            if self.verbose:
-                print(f"    ❌ Evaluation failed: {str(e)}")
+            logger.error(f"Evaluation failed for {file_path}: {str(e)}")
             
             return {
                 "success": False,
@@ -164,7 +195,7 @@ class JudgeAgent:
             dict: Error analysis with fix suggestions
         """
         if self.verbose:
-            print(f"  🔍 Judge analyzing errors for: {file_path}")
+            logger.info(f"Judge analyzing errors for: {file_path}")
         
         try:
             # Read current code
@@ -177,16 +208,23 @@ class JudgeAgent:
                 current_code=current_code
             )
             
-            # Call LLM
+            # Call LLM with retry
             messages = [
                 SystemMessage(content=self.system_prompt),
                 HumanMessage(content=analysis_prompt)
             ]
             
-            response = self.llm.invoke(messages)
+            response_content = self._call_llm(messages)
             
-            # Parse analysis
-            analysis = self._parse_response(response.content)
+            # Parse analysis using shared utility
+            analysis = parse_llm_json_response(
+                response_content,
+                fallback={
+                    "root_causes": [],
+                    "priority_order": [],
+                    "estimated_difficulty": "medium"
+                }
+            )
             
             return {
                 "success": True,
@@ -198,8 +236,7 @@ class JudgeAgent:
             }
             
         except Exception as e:
-            if self.verbose:
-                print(f"    ❌ Error analysis failed: {str(e)}")
+            logger.error(f"Error analysis failed for {file_path}: {str(e)}")
             
             return {
                 "success": False,
@@ -216,6 +253,7 @@ class JudgeAgent:
     ) -> str:
         """
         Determine the final verdict based on objective criteria.
+        Uses configurable thresholds for flexibility.
         
         Args:
             new_score: New pylint score
@@ -228,7 +266,7 @@ class JudgeAgent:
         """
         tests_pass = test_results.get("success", False)
         score_improved = new_score > original_score
-        score_good = new_score >= 8.0
+        score_good = new_score >= self.success_score_threshold
         
         # SUCCESS conditions
         if tests_pass and (score_improved or score_good):
@@ -242,8 +280,8 @@ class JudgeAgent:
                 return "SUCCESS"
             return "RETRY"
         
-        # FAILURE if score got much worse
-        if new_score < original_score - 2.0:
+        # FAILURE if score got much worse (configurable threshold)
+        if new_score < original_score - self.regression_threshold:
             return "FAILURE"
         
         # Default to RETRY for fixable issues

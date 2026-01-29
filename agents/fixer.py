@@ -1,13 +1,18 @@
 """
-Fixer Agent - Implements code fixes based on refactoring plans
+Fixer Agent - Implements code fixes based on refactoring plans.
+Improvements:
+- Shared JSON parsing utility
+- LLM retry logic with exponential backoff
+- Diff generation for tracking changes
+- Proper logging
 """
 
-import json
+import difflib
+import logging
 import os
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from prompts.fixer_prompt import (
@@ -16,6 +21,12 @@ from prompts.fixer_prompt import (
     FIXER_ITERATIVE_PROMPT
 )
 from tools.file_tools import read_file, write_file, backup_file
+from utils.response_parser import parse_llm_json_response, extract_code_from_response
+from utils.retry_handler import retry_llm_call
+from utils.llm_factory import get_llm
+from config import get_config
+
+logger = logging.getLogger(__name__)
 
 
 class FixerAgent:
@@ -33,20 +44,50 @@ class FixerAgent:
         Initialize the Fixer Agent.
         
         Args:
-            model_name: Gemini model to use
+            model_name: LLM model to use
             temperature: LLM temperature (lower = more deterministic)
             verbose: Enable verbose output
         """
-        self.model_name = model_name or os.getenv("MODEL_NAME", "claude-sonnet-4-20250514")
+        config = get_config()
+        self.model_name = model_name or config.llm.model_name
         self.temperature = temperature
         self.verbose = verbose
+        self.create_backups = config.agents.fixer_create_backups
+        self.validate_syntax = config.agents.fixer_validate_syntax
         
-        self.llm = ChatAnthropic(
-            model=self.model_name,
-            temperature=self.temperature
+        self.llm = get_llm(
+            model_name=self.model_name,
+            temperature=self.temperature,
+            timeout=config.llm.timeout
         )
         
         self.system_prompt = FIXER_SYSTEM_PROMPT
+    
+    @retry_llm_call(max_attempts=3, initial_delay=2.0)
+    def _call_llm(self, messages: List) -> str:
+        """Call LLM with retry logic."""
+        response = self.llm.invoke(messages)
+        return response.content
+    
+    def _generate_diff(self, original: str, fixed: str, file_path: str = "") -> str:
+        """
+        Generate unified diff for tracking changes.
+        
+        Args:
+            original: Original code
+            fixed: Fixed code
+            file_path: File path for diff header
+            
+        Returns:
+            Unified diff string
+        """
+        diff = difflib.unified_diff(
+            original.splitlines(keepends=True),
+            fixed.splitlines(keepends=True),
+            fromfile=f"a/{file_path}" if file_path else "original",
+            tofile=f"b/{file_path}" if file_path else "fixed"
+        )
+        return ''.join(diff)
     
     def fix_file(
         self,
@@ -70,19 +111,21 @@ class FixerAgent:
             dict: Fix results
         """
         if self.verbose:
-            print(f"  🔧 Fixer working on: {file_path}")
+            logger.info(f"Fixer working on: {file_path}")
         
         try:
             # Read original code
             original_code = read_file(file_path, sandbox_dir)
             
             # Backup before modifying
-            if not dry_run:
+            backup_path = None
+            if not dry_run and self.create_backups:
                 backup_path = backup_file(file_path, sandbox_dir)
                 if self.verbose and backup_path:
-                    print(f"    📦 Backup created: {backup_path}")
+                    logger.info(f"Backup created: {backup_path}")
             
             # Prepare prompt
+            import json
             repair_prompt = FIXER_REPAIR_PROMPT.format(
                 file_path=file_path,
                 original_code=original_code,
@@ -90,19 +133,21 @@ class FixerAgent:
                 issues=json.dumps(issues, indent=2)
             )
             
-            # Call LLM
+            # Call LLM with retry
             messages = [
                 SystemMessage(content=self.system_prompt),
                 HumanMessage(content=repair_prompt)
             ]
             
-            response = self.llm.invoke(messages)
+            response_content = self._call_llm(messages)
             
-            # Parse response
-            fix_result = self._parse_response(response.content)
+            # Parse response using shared utility
+            fix_result = parse_llm_json_response(response_content)
             
-            # Extract fixed code
+            # Extract fixed code (try multiple sources)
             fixed_code = fix_result.get("fixed_code", "")
+            if not fixed_code:
+                fixed_code = extract_code_from_response(response_content)
             
             if not fixed_code:
                 return {
@@ -112,36 +157,41 @@ class FixerAgent:
                 }
             
             # Validate the fixed code is syntactically correct
-            validation = self._validate_python_syntax(fixed_code)
-            if not validation["valid"]:
-                return {
-                    "success": False,
-                    "error": f"Generated code has syntax errors: {validation['error']}",
-                    "file_path": file_path,
-                    "fixed_code": fixed_code
-                }
+            if self.validate_syntax:
+                validation = self._validate_python_syntax(fixed_code)
+                if not validation["valid"]:
+                    return {
+                        "success": False,
+                        "error": f"Generated code has syntax errors: {validation['error']}",
+                        "file_path": file_path,
+                        "fixed_code": fixed_code
+                    }
+            
+            # Generate diff for tracking
+            diff = self._generate_diff(original_code, fixed_code, file_path)
             
             # Write the fixed code (unless dry run)
             if not dry_run:
                 write_file(file_path, fixed_code, sandbox_dir)
                 if self.verbose:
-                    print(f"    ✅ File updated")
+                    logger.info(f"File updated: {file_path}")
             else:
                 if self.verbose:
-                    print(f"    ⏸️  Dry run - no changes written")
+                    logger.info(f"Dry run - no changes written")
             
             return {
                 "success": True,
                 "file_path": file_path,
                 "original_code": original_code,
                 "fixed_code": fixed_code,
+                "diff": diff,
                 "changes_made": fix_result.get("changes_made", []),
+                "backup_path": backup_path,
                 "dry_run": dry_run
             }
             
         except Exception as e:
-            if self.verbose:
-                print(f"    ❌ Fix failed: {str(e)}")
+            logger.error(f"Fix failed for {file_path}: {str(e)}")
             
             return {
                 "success": False,
@@ -175,13 +225,14 @@ class FixerAgent:
             dict: Fix results
         """
         if self.verbose:
-            print(f"  🔧 Fixer (iteration {iteration}/{max_iterations}): {file_path}")
+            logger.info(f"Fixer (iteration {iteration}/{max_iterations}): {file_path}")
         
         try:
             # Read current code
             current_code = read_file(file_path, sandbox_dir)
             
             # Prepare iterative prompt
+            import json
             prompt = FIXER_ITERATIVE_PROMPT.format(
                 file_path=file_path,
                 current_code=current_code,
@@ -191,19 +242,21 @@ class FixerAgent:
                 max_iterations=max_iterations
             )
             
-            # Call LLM
+            # Call LLM with retry
             messages = [
                 SystemMessage(content=self.system_prompt),
                 HumanMessage(content=prompt)
             ]
             
-            response = self.llm.invoke(messages)
+            response_content = self._call_llm(messages)
             
-            # Parse response
-            fix_result = self._parse_response(response.content)
+            # Parse response using shared utility
+            fix_result = parse_llm_json_response(response_content)
             
-            # Extract fixed code
+            # Extract fixed code (try multiple sources)
             fixed_code = fix_result.get("fixed_code", "")
+            if not fixed_code:
+                fixed_code = extract_code_from_response(response_content)
             
             if not fixed_code:
                 return {
@@ -214,25 +267,30 @@ class FixerAgent:
                 }
             
             # Validate syntax
-            validation = self._validate_python_syntax(fixed_code)
-            if not validation["valid"]:
-                return {
-                    "success": False,
-                    "error": f"Generated code has syntax errors: {validation['error']}",
-                    "file_path": file_path,
-                    "iteration": iteration
-                }
+            if self.validate_syntax:
+                validation = self._validate_python_syntax(fixed_code)
+                if not validation["valid"]:
+                    return {
+                        "success": False,
+                        "error": f"Generated code has syntax errors: {validation['error']}",
+                        "file_path": file_path,
+                        "iteration": iteration
+                    }
+            
+            # Generate diff
+            diff = self._generate_diff(current_code, fixed_code, file_path)
             
             # Write the fixed code
             if not dry_run:
                 write_file(file_path, fixed_code, sandbox_dir)
                 if self.verbose:
-                    print(f"    ✅ File updated (iteration {iteration})")
+                    logger.info(f"File updated (iteration {iteration})")
             
             return {
                 "success": True,
                 "file_path": file_path,
                 "fixed_code": fixed_code,
+                "diff": diff,
                 "error_analysis": fix_result.get("error_analysis", ""),
                 "new_changes": fix_result.get("new_changes", []),
                 "confidence": fix_result.get("confidence", 0.5),
@@ -241,60 +299,13 @@ class FixerAgent:
             }
             
         except Exception as e:
-            if self.verbose:
-                print(f"    ❌ Fix failed: {str(e)}")
+            logger.error(f"Fix with feedback failed for {file_path}: {str(e)}")
             
             return {
                 "success": False,
                 "error": str(e),
                 "file_path": file_path,
                 "iteration": iteration
-            }
-    
-    def _parse_response(self, response: str) -> Dict[str, Any]:
-        """
-        Parse the LLM response into a structured format.
-        
-        Args:
-            response: Raw LLM response
-            
-        Returns:
-            dict: Parsed fix result
-        """
-        try:
-            # Look for JSON block
-            if "```json" in response:
-                json_start = response.find("```json") + 7
-                json_end = response.find("```", json_start)
-                json_str = response[json_start:json_end].strip()
-            elif "```python" in response:
-                # Sometimes LLM puts code directly
-                code_start = response.find("```python") + 9
-                code_end = response.find("```", code_start)
-                code = response[code_start:code_end].strip()
-                return {"fixed_code": code, "changes_made": ["Code refactored"]}
-            elif "```" in response:
-                json_start = response.find("```") + 3
-                json_end = response.find("```", json_start)
-                json_str = response[json_start:json_end].strip()
-            else:
-                json_start = response.find("{")
-                json_end = response.rfind("}") + 1
-                json_str = response[json_start:json_end]
-            
-            return json.loads(json_str)
-            
-        except json.JSONDecodeError:
-            # Try to extract code if JSON parsing fails
-            if "def " in response or "class " in response:
-                return {
-                    "fixed_code": response,
-                    "changes_made": ["Code extracted from response"]
-                }
-            return {
-                "fixed_code": "",
-                "error": "Failed to parse response",
-                "raw_response": response
             }
     
     def _validate_python_syntax(self, code: str) -> Dict[str, Any]:

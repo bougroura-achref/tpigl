@@ -11,21 +11,51 @@ Usage:
 import argparse
 import sys
 import os
+import logging
+import signal
 from pathlib import Path
 from datetime import datetime
 
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from orchestrator.graph import RefactoringGraph
 from orchestrator.state import SwarmState
 from logging_system.telemetry import TelemetryLogger
+from config import get_config, SwarmConfig
 
 # Load environment variables
 load_dotenv()
 
 console = Console()
+
+# Global telemetry for signal handler
+_telemetry = None
+
+
+def setup_logging(verbose: bool = False):
+    """Configure logging based on verbosity level."""
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler('logs/swarm.log', mode='a')
+        ]
+    )
+
+
+def signal_handler(sig, frame):
+    """Handle termination signals gracefully."""
+    global _telemetry
+    console.print("\n[yellow]⚠️  Received termination signal, cleaning up...[/yellow]")
+    if _telemetry:
+        _telemetry.log_event("swarm_cancelled", {"reason": "signal_received"})
+        _telemetry.save()
+    sys.exit(130)
 
 
 def parse_arguments():
@@ -67,6 +97,26 @@ Examples:
         help="Analyze code without making changes"
     )
     
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="LLM model to use (overrides MODEL_NAME env var)"
+    )
+    
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=3600,
+        help="Maximum execution time in seconds (default: 3600)"
+    )
+    
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from last checkpoint if available"
+    )
+    
     return parser.parse_args()
 
 
@@ -91,15 +141,23 @@ def validate_target_dir(target_dir: str) -> Path:
 
 
 def validate_api_key():
-    """Validate that Anthropic API key is configured."""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    """Validate that at least one API key is configured (Anthropic or Google)."""
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    google_key = os.getenv("GOOGLE_API_KEY")
     
-    if not api_key or api_key == "your_anthropic_api_key_here":
-        console.print("[red]❌ Error: ANTHROPIC_API_KEY not configured[/red]")
-        console.print("[yellow]   Please set your API key in the .env file[/yellow]")
+    has_anthropic = anthropic_key and anthropic_key != "your_anthropic_api_key_here"
+    has_google = google_key and google_key != "your_google_api_key_here"
+    
+    if not has_anthropic and not has_google:
+        console.print("[red]❌ Error: No API key configured[/red]")
+        console.print("[yellow]   Please set either ANTHROPIC_API_KEY or GOOGLE_API_KEY in the .env file[/yellow]")
+        console.print("[dim]   Example: ANTHROPIC_API_KEY=sk-ant-... or GOOGLE_API_KEY=...[/dim]")
         sys.exit(1)
     
-    return api_key
+    # Return which provider is available
+    if has_anthropic:
+        return "anthropic"
+    return "google"
 
 
 def display_banner():
@@ -115,11 +173,14 @@ IGL Lab - 2025/2026
 
 def display_config(args, target_path: Path):
     """Display the current configuration."""
+    config = get_config()
     console.print("\n[bold]📋 Configuration:[/bold]")
     console.print(f"   Target Directory: {target_path}")
     console.print(f"   Max Iterations: {args.max_iterations}")
     console.print(f"   Verbose Mode: {'Enabled' if args.verbose else 'Disabled'}")
     console.print(f"   Dry Run: {'Yes' if args.dry_run else 'No'}")
+    console.print(f"   Model: {args.model or config.llm.model_name}")
+    console.print(f"   Timeout: {args.timeout}s")
     
     # Count Python files
     python_files = list(target_path.glob("**/*.py"))
@@ -129,8 +190,18 @@ def display_config(args, target_path: Path):
 
 def main():
     """Main entry point for The Refactoring Swarm."""
+    global _telemetry
+    
     # Parse arguments
     args = parse_arguments()
+    
+    # Setup logging
+    setup_logging(args.verbose)
+    logger = logging.getLogger(__name__)
+    
+    # Setup signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
     # Display banner
     display_banner()
@@ -144,11 +215,15 @@ def main():
     # Display configuration
     display_config(args, target_path)
     
+    # Ensure logs directory exists
+    Path("logs").mkdir(exist_ok=True)
+    
     # Initialize telemetry logger
     telemetry = TelemetryLogger(
         experiment_id=f"exp_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
         target_dir=str(target_path)
     )
+    _telemetry = telemetry  # For signal handler
     
     try:
         # Initialize the refactoring graph
@@ -173,10 +248,20 @@ def main():
         # Run the refactoring process
         telemetry.log_event("swarm_started", {
             "target_dir": str(target_path),
-            "max_iterations": args.max_iterations
+            "max_iterations": args.max_iterations,
+            "model": args.model or get_config().llm.model_name,
+            "dry_run": args.dry_run
         })
         
-        final_state = graph.run(initial_state)
+        # Run with progress indicator
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("Processing...", total=None)
+            final_state = graph.run(initial_state)
+            progress.update(task, description="Complete!")
         
         # Display results
         console.print("\n" + "=" * 60)
