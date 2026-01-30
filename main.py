@@ -51,7 +51,7 @@ def setup_logging(verbose: bool = False):
 def signal_handler(sig, frame):
     """Handle termination signals gracefully."""
     global _telemetry
-    console.print("\n[yellow]⚠️  Received termination signal, cleaning up...[/yellow]")
+    console.print("\n[yellow][!] Received termination signal, cleaning up...[/yellow]")
     if _telemetry:
         _telemetry.log_event("swarm_cancelled", {"reason": "signal_received"})
         _telemetry.save()
@@ -125,17 +125,17 @@ def validate_target_dir(target_dir: str) -> Path:
     path = Path(target_dir).resolve()
     
     if not path.exists():
-        console.print(f"[red]❌ Error: Target directory does not exist: {path}[/red]")
+        console.print(f"[red][X] Error: Target directory does not exist: {path}[/red]")
         sys.exit(1)
     
     if not path.is_dir():
-        console.print(f"[red]❌ Error: Target path is not a directory: {path}[/red]")
+        console.print(f"[red][X] Error: Target path is not a directory: {path}[/red]")
         sys.exit(1)
     
     # Check for Python files
     python_files = list(path.glob("**/*.py"))
     if not python_files:
-        console.print(f"[yellow]⚠️  Warning: No Python files found in {path}[/yellow]")
+        console.print(f"[yellow][!] Warning: No Python files found in {path}[/yellow]")
     
     return path
 
@@ -149,7 +149,7 @@ def validate_api_key():
     has_google = google_key and google_key != "your_google_api_key_here"
     
     if not has_anthropic and not has_google:
-        console.print("[red]❌ Error: No API key configured[/red]")
+        console.print("[red][X] Error: No API key configured[/red]")
         console.print("[yellow]   Please set either ANTHROPIC_API_KEY or GOOGLE_API_KEY in the .env file[/yellow]")
         console.print("[dim]   Example: ANTHROPIC_API_KEY=sk-ant-... or GOOGLE_API_KEY=...[/dim]")
         sys.exit(1)
@@ -163,8 +163,8 @@ def validate_api_key():
 def display_banner():
     """Display the application banner."""
     banner = """
-🎓 The Refactoring Swarm
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[*] The Refactoring Swarm
+================================
 Autonomous Code Refactoring System
 IGL Lab - 2025/2026
     """
@@ -174,7 +174,7 @@ IGL Lab - 2025/2026
 def display_config(args, target_path: Path):
     """Display the current configuration."""
     config = get_config()
-    console.print("\n[bold]📋 Configuration:[/bold]")
+    console.print("\n[bold]Configuration:[/bold]")
     console.print(f"   Target Directory: {target_path}")
     console.print(f"   Max Iterations: {args.max_iterations}")
     console.print(f"   Verbose Mode: {'Enabled' if args.verbose else 'Disabled'}")
@@ -207,10 +207,10 @@ def main():
     display_banner()
     
     # Validate inputs
-    console.print("[bold]🔍 Validating configuration...[/bold]")
+    console.print("[bold][>] Validating configuration...[/bold]")
     target_path = validate_target_dir(args.target_dir)
     api_key = validate_api_key()
-    console.print("[green]   ✅ Configuration valid[/green]")
+    console.print("[green]   [OK] Configuration valid[/green]")
     
     # Display configuration
     display_config(args, target_path)
@@ -227,7 +227,7 @@ def main():
     
     try:
         # Initialize the refactoring graph
-        console.print("[bold]🚀 Starting The Refactoring Swarm...[/bold]\n")
+        console.print("[bold][>>] Starting The Refactoring Swarm...[/bold]\n")
         
         graph = RefactoringGraph(
             target_dir=target_path,
@@ -265,7 +265,7 @@ def main():
         
         # Display results
         console.print("\n" + "=" * 60)
-        console.print("[bold]📊 Refactoring Complete![/bold]")
+        console.print("[bold][*] Refactoring Complete![/bold]")
         console.print("=" * 60)
         
         console.print(f"\n   Status: {final_state.status}")
@@ -285,24 +285,24 @@ def main():
         
         # Save telemetry
         telemetry.save()
-        console.print(f"\n   📁 Experiment data saved to: logs/experiment_data.json")
+        console.print(f"\n   [>] Experiment data saved to: logs/experiment_data.json")
         
         # Exit with appropriate code
         if final_state.status == "success":
-            console.print("\n[bold green]🎉 Refactoring completed successfully![/bold green]")
+            console.print("\n[bold green][SUCCESS] Refactoring completed successfully![/bold green]")
             return 0
         else:
-            console.print(f"\n[bold yellow]⚠️  Refactoring completed with status: {final_state.status}[/bold yellow]")
+            console.print(f"\n[bold yellow][!] Refactoring completed with status: {final_state.status}[/bold yellow]")
             return 1
             
     except KeyboardInterrupt:
-        console.print("\n[yellow]⚠️  Operation cancelled by user[/yellow]")
+        console.print("\n[yellow][!] Operation cancelled by user[/yellow]")
         telemetry.log_event("swarm_cancelled", {"reason": "user_interrupt"})
         telemetry.save()
         return 130
         
     except Exception as e:
-        console.print(f"\n[red]❌ Error: {str(e)}[/red]")
+        console.print(f"\n[red][X] Error: {str(e)}[/red]")
         telemetry.log_event("swarm_error", {"error": str(e)})
         telemetry.save()
         if args.verbose:

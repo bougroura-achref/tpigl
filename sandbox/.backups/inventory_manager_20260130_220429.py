@@ -1,20 +1,20 @@
 """Inventory management system for tracking products and stock levels."""
 import json
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
 
 class Product:
     """Represents a product with name, price, and quantity.
-
+    
     Attributes:
         name (str): The product name
         price (float): The product price
         quantity (int): The current stock quantity
     """
-
+    
     def __init__(self, name: str, price: float, quantity: int) -> None:
         """Initialize a new product.
-
+        
         Args:
             name: The product name
             price: The product price
@@ -26,7 +26,7 @@ class Product:
 
     def get_total_value(self) -> float:
         """Calculate the total value of this product's stock.
-
+        
         Returns:
             The total value (price * quantity)
         """
@@ -34,7 +34,7 @@ class Product:
 
     def update_quantity(self, amount: int) -> None:
         """Update the product quantity by the given amount.
-
+        
         Args:
             amount: The amount to add (negative to subtract)
         """
@@ -43,18 +43,18 @@ class Product:
 
 class Inventory:
     """Manages a collection of products and their stock levels.
-
+    
     Attributes:
         products (Dict[str, Product]): Dictionary mapping product names to Product objects
     """
-
+    
     def __init__(self) -> None:
         """Initialize an empty inventory."""
         self.products: Dict[str, Product] = {}
 
     def add_product(self, product: Product) -> None:
         """Add a product to the inventory.
-
+        
         Args:
             product: The Product object to add
         """
@@ -62,10 +62,10 @@ class Inventory:
 
     def remove_product(self, name: str) -> bool:
         """Remove a product from the inventory.
-
+        
         Args:
             name: The name of the product to remove
-
+            
         Returns:
             True if product was removed, False if product not found
         """
@@ -77,10 +77,10 @@ class Inventory:
 
     def get_product(self, name: str) -> Optional[Product]:
         """Get a product by name.
-
+        
         Args:
             name: The name of the product to retrieve
-
+            
         Returns:
             The Product object if found, None otherwise
         """
@@ -88,18 +88,21 @@ class Inventory:
 
     def calculate_total_inventory_value(self) -> float:
         """Calculate the total value of all products in inventory.
-
+        
         Returns:
             The total inventory value
         """
-        return sum(product.get_total_value() for product in self.products.values())
+        total = 0
+        for name, product in self.products.items():
+            total += product.get_total_value()
+        return total
 
     def find_low_stock(self, threshold: int) -> List[str]:
         """Find products with stock below the given threshold.
-
+        
         Args:
             threshold: The minimum stock level
-
+            
         Returns:
             List of product names with low stock
         """
@@ -111,11 +114,11 @@ class Inventory:
 
     def apply_discount(self, name: str, percent: float) -> bool:
         """Apply a percentage discount to a product's price.
-
+        
         Args:
             name: The name of the product
             percent: The discount percentage (0-100)
-
+            
         Returns:
             True if discount was applied, False if product not found
         """
@@ -127,11 +130,11 @@ class Inventory:
 
     def restock(self, name: str, amount: int) -> bool:
         """Add stock to a product.
-
+        
         Args:
             name: The name of the product
             amount: The amount to add to stock
-
+            
         Returns:
             True if restock was successful, False if product not found
         """
@@ -143,37 +146,37 @@ class Inventory:
 
     def export_to_json(self, filename: str) -> None:
         """Export inventory data to a JSON file.
-
+        
         Args:
             filename: The path to the output JSON file
         """
         data = {}
         for name, product in self.products.items():
             data[name] = {"price": product.price, "quantity": product.quantity}
-
+        
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
     def import_from_json(self, filename: str) -> None:
         """Import inventory data from a JSON file.
-
+        
         Args:
             filename: The path to the input JSON file
         """
         with open(filename, "r", encoding="utf-8") as f:
             data = json.load(f)
-
+        
         for name, product_data in data.items():
             self.add_product(Product(name, product_data["price"], product_data["quantity"]))
 
 
-def process_order(inventory: Inventory, order_items: List[Dict[str, Any]]) -> float:
+def process_order(inventory: Inventory, order_items: List[Dict[str, any]]) -> float:
     """Process a customer order and update inventory.
-
+    
     Args:
         inventory: The Inventory object to process against
         order_items: List of dictionaries with 'name' and 'quantity' keys
-
+        
     Returns:
         The total order value
     """
@@ -182,11 +185,11 @@ def process_order(inventory: Inventory, order_items: List[Dict[str, Any]]) -> fl
         name = item["name"]
         qty = item["quantity"]
         product = inventory.get_product(name)
-
+        
         if product is None:
             print(f"Product '{name}' not found")
             continue
-
+            
         if product.quantity >= qty:
             product.update_quantity(-qty)
             total += product.price * qty
