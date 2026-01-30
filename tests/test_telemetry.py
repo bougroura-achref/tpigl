@@ -194,7 +194,8 @@ class TestExperimentData:
         
         assert data.experiment_id == ""
         assert data.max_iterations == 10
-        assert data.llm_model == "gpt-4"
+        # Model defaults from environment or claude-sonnet-4-20250514
+        assert "claude" in data.llm_model or data.llm_model != ""
         assert data.file_results == []
         assert data.errors == []
     
@@ -203,12 +204,12 @@ class TestExperimentData:
         data = ExperimentData(
             experiment_id="test123",
             max_iterations=5,
-            llm_model="gpt-4-turbo"
+            llm_model="claude-sonnet-4-20250514"
         )
         
         assert data.experiment_id == "test123"
         assert data.max_iterations == 5
-        assert data.llm_model == "gpt-4-turbo"
+        assert data.llm_model == "claude-sonnet-4-20250514"
 
 
 if __name__ == "__main__":

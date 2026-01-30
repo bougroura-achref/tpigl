@@ -7,7 +7,9 @@ def test_calculator_functions():
     assert calculator.subtract(5, 3) == 2
     assert calculator.multiply(2, 3) == 6
     assert calculator.divide(10, 2) == 5.0
-    assert calculator.divide(5, 0) is None
+    # Division by zero should raise ZeroDivisionError
+    with pytest.raises(ZeroDivisionError):
+        calculator.divide(5, 0)
 
 def test_calculator_class():
     calc = calculator.Calculator()

@@ -32,9 +32,9 @@ class TestAuditorAgent:
     
     def test_auditor_initialization(self):
         """Test AuditorAgent can be initialized"""
-        # Skip if no API key
-        if not os.environ.get("OPENAI_API_KEY"):
-            pytest.skip("OPENAI_API_KEY not set")
+        # Skip if no API key (supports both Anthropic and Google)
+        if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("GOOGLE_API_KEY"):
+            pytest.skip("No API key set (ANTHROPIC_API_KEY or GOOGLE_API_KEY)")
         
         from agents import AuditorAgent
         agent = AuditorAgent(verbose=False)
@@ -42,8 +42,8 @@ class TestAuditorAgent:
     
     def test_auditor_analyze_file_structure(self):
         """Test that analyze_file returns expected structure"""
-        if not os.environ.get("OPENAI_API_KEY"):
-            pytest.skip("OPENAI_API_KEY not set")
+        if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("GOOGLE_API_KEY"):
+            pytest.skip("No API key set (ANTHROPIC_API_KEY or GOOGLE_API_KEY)")
         
         from agents import AuditorAgent
         agent = AuditorAgent(verbose=False)
@@ -76,8 +76,8 @@ class TestFixerAgent:
     
     def test_fixer_initialization(self):
         """Test FixerAgent can be initialized"""
-        if not os.environ.get("OPENAI_API_KEY"):
-            pytest.skip("OPENAI_API_KEY not set")
+        if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("GOOGLE_API_KEY"):
+            pytest.skip("No API key set (ANTHROPIC_API_KEY or GOOGLE_API_KEY)")
         
         from agents import FixerAgent
         agent = FixerAgent(verbose=False)
@@ -103,8 +103,8 @@ class TestJudgeAgent:
     
     def test_judge_initialization(self):
         """Test JudgeAgent can be initialized"""
-        if not os.environ.get("OPENAI_API_KEY"):
-            pytest.skip("OPENAI_API_KEY not set")
+        if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("GOOGLE_API_KEY"):
+            pytest.skip("No API key set (ANTHROPIC_API_KEY or GOOGLE_API_KEY)")
         
         from agents import JudgeAgent
         agent = JudgeAgent(verbose=False)
