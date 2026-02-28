@@ -113,6 +113,7 @@ class RefactoringGraph:
         workflow.add_node("analyze", self._analyze_node)
         workflow.add_node("fix", self._fix_node)
         workflow.add_node("evaluate", self._evaluate_node)
+        workflow.add_node("transition", self._transition_node)
         workflow.add_node("finalize", self._finalize_node)
         
         # Set entry point
@@ -122,10 +123,11 @@ class RefactoringGraph:
         workflow.add_edge("initialize", "analyze")
         workflow.add_edge("analyze", "fix")
         workflow.add_edge("fix", "evaluate")
+        workflow.add_edge("evaluate", "transition")
         
-        # Conditional edges from evaluate
+        # Conditional edges from transition
         workflow.add_conditional_edges(
-            "evaluate",
+            "transition",
             self._should_continue,
             {
                 "continue": "fix",  # Loop back to fix
@@ -339,38 +341,45 @@ class RefactoringGraph:
         verdict = file_state.get("verdict", "")
         iterations = file_state.get("fix_iterations", 0)
         
-        # SUCCESS - move to next file
-        if verdict == "SUCCESS":
-            file_state["status"] = "success"
+        # SUCCESS or FAILURE or max iterations - check if more files
+        if verdict == "SUCCESS" or verdict == "FAILURE" or iterations >= self.max_iterations:
             pending = state.get("pending_files", [])
-            
-            # Remove current file from pending
-            if current_file in pending:
-                pending.remove(current_file)
-                state["pending_files"] = pending
-            
-            # Get next file
             if pending:
-                state["current_file"] = pending[0]
-                return "next_file"
-            return "end"
-        
-        # FAILURE or max iterations - mark as failed, move on
-        if verdict == "FAILURE" or iterations >= self.max_iterations:
-            file_state["status"] = "failed"
-            pending = state.get("pending_files", [])
-            
-            if current_file in pending:
-                pending.remove(current_file)
-                state["pending_files"] = pending
-            
-            if pending:
-                state["current_file"] = pending[0]
                 return "next_file"
             return "end"
         
         # RETRY - continue fixing
         return "continue"
+    
+    def _transition_node(self, state: GraphState) -> GraphState:
+        """Handle state transitions between files"""
+        current_file = state.get("current_file")
+        
+        if not current_file:
+            return state
+        
+        file_state = state["files"][current_file]
+        verdict = file_state.get("verdict", "")
+        iterations = file_state.get("fix_iterations", 0)
+        
+        if verdict == "SUCCESS":
+            file_state["status"] = "success"
+        elif verdict == "FAILURE" or iterations >= self.max_iterations:
+            file_state["status"] = "failed"
+        else:
+            # RETRY - no state change needed
+            return state
+        
+        # Move to next file
+        pending = list(state.get("pending_files", []))
+        if current_file in pending:
+            pending.remove(current_file)
+        
+        state["pending_files"] = pending
+        state["current_file"] = pending[0] if pending else None
+        state["files"][current_file] = file_state
+        
+        return state
     
     def _finalize_node(self, state: GraphState) -> GraphState:
         """Finalize the workflow and calculate metrics"""

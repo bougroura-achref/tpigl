@@ -16,26 +16,9 @@ def calculate_sum(a: float, b: float) -> float:
         float: The sum of a and b.
     
     Example:
-        >>> calculate_sum(2.0, 3.0)
+        >>> calculate_sum(2, 3)
         5.0
         >>> calculate_sum(1.5, 2.5)
         4.0
-        >>> calculate_sum(-1.0, 1.0)
-        0.0
-        >>> calculate_sum(-2.5, -3.5)
-        -6.0
-        >>> calculate_sum(0.0, 0.0)
-        0.0
-        >>> calculate_sum(1e10, 1e-10)
-        10000000000.0
-        >>> calculate_sum(float('inf'), 1.0)
-        inf
-        >>> calculate_sum(float('-inf'), 1.0)
-        -inf
     """
     return a + b
-
-
-if __name__ == "__main__":
-    import doctest
-    doctest.testmod()
