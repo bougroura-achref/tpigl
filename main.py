@@ -16,6 +16,15 @@ import signal
 from pathlib import Path
 from datetime import datetime
 
+# Fix Windows console encoding for Rich Unicode characters
+if sys.platform == "win32":
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel

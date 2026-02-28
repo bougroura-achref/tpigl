@@ -37,6 +37,7 @@ env/
 
 # Logs (keep structure, ignore content)
 logs/*.json
+!logs/experiment_data.json
 !logs/.gitkeep
 
 # OS
