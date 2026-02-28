@@ -38,6 +38,7 @@ env/
 # Logs (keep structure, ignore content)
 logs/*.json
 !logs/experiment_data.json
+!logs/Flip_experiment_data.json
 !logs/.gitkeep
 
 # OS
