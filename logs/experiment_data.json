@@ -1,0 +1,125 @@
+{
+  "experiment_id": "exp_20260228_134311",
+  "started_at": "2026-02-28T13:43:11.262253",
+  "completed_at": "",
+  "target_directory": "C:\\Users\\GIGABYTE\\TP_IGL_Flip\\tpiglmeet\\sandbox\\test_local",
+  "max_iterations": 10,
+  "llm_model": "claude-sonnet-4-20250514",
+  "tools_used": [
+    "pylint",
+    "pytest",
+    "file_tools"
+  ],
+  "status": "",
+  "total_iterations": 0,
+  "files_processed": 0,
+  "files_successful": 0,
+  "files_failed": 0,
+  "initial_pylint_score": 0.0,
+  "final_pylint_score": 0.0,
+  "score_improvement": 0.0,
+  "tests_run": 0,
+  "tests_passed": 0,
+  "tests_failed": 0,
+  "file_results": [],
+  "agent_logs": [
+    {
+      "event_id": 1,
+      "timestamp": "2026-02-28T13:43:11.549234",
+      "event_type": "swarm_started",
+      "details": {
+        "target_dir": "C:\\Users\\GIGABYTE\\TP_IGL_Flip\\tpiglmeet\\sandbox\\test_local",
+        "max_iterations": 10,
+        "model": "claude-sonnet-4-20250514",
+        "dry_run": false
+      }
+    },
+    {
+      "event_id": 2,
+      "timestamp": "2026-02-28T13:43:11.552218",
+      "event_type": "initialization_complete",
+      "details": {
+        "file_count": 1,
+        "files": [
+          "C:\\Users\\GIGABYTE\\TP_IGL_Flip\\tpiglmeet\\sandbox\\test_local\\buggy_calculator.py"
+        ]
+      }
+    },
+    {
+      "event_id": 3,
+      "timestamp": "2026-02-28T13:43:33.763025",
+      "event_type": "file_analyzed",
+      "details": {
+        "file": "C:\\Users\\GIGABYTE\\TP_IGL_Flip\\tpiglmeet\\sandbox\\test_local\\buggy_calculator.py",
+        "score": 5.4,
+        "issues_count": 13
+      }
+    },
+    {
+      "event_id": 4,
+      "timestamp": "2026-02-28T13:44:08.633834",
+      "event_type": "file_fixed",
+      "details": {
+        "file": "C:\\Users\\GIGABYTE\\TP_IGL_Flip\\tpiglmeet\\sandbox\\test_local\\buggy_calculator.py",
+        "iteration": 1,
+        "changes": [
+          "Added input validation for divide method to prevent division by zero",
+          "Added input validation for factorial method to prevent negative numbers",
+          "Added input validation for process_list method to handle empty lists",
+          "Added input validation for sqrt method to prevent negative numbers",
+          "Replaced eval() with ast.literal_eval() for safe data parsing",
+          "Added ast import for safe literal evaluation",
+          "Implemented context managers for file operations in save_results and load_results",
+          "Added comprehensive error handling for file operations",
+          "Cleaned up imports: removed unused imports (os, sys, json, random)",
+          "Renamed class from 'calculator' to 'Calculator' (PascalCase)",
+          "Fixed method spacing and formatting according to PEP 8",
+          "Optimized process_list method to use sum() instead of manual loop",
+          "Removed unnecessary else clause in factorial method",
+          "Added comprehensive docstrings to class and all methods",
+          "Added type hints for all method parameters and return values",
+          "Added encoding specification to file operations",
+          "Added proper exception handling in batch_calculate method"
+        ]
+      }
+    },
+    {
+      "event_id": 5,
+      "timestamp": "2026-02-28T13:44:16.662491",
+      "event_type": "file_evaluated",
+      "details": {
+        "file": "C:\\Users\\GIGABYTE\\TP_IGL_Flip\\tpiglmeet\\sandbox\\test_local\\buggy_calculator.py",
+        "verdict": "SUCCESS",
+        "original_score": 5.4,
+        "new_score": 9.1,
+        "tests_passed": true
+      }
+    },
+    {
+      "event_id": 6,
+      "timestamp": "2026-02-28T13:44:16.663476",
+      "event_type": "workflow_complete",
+      "details": {
+        "status": "success",
+        "files_processed": 1,
+        "files_successful": 1,
+        "initial_score": 5.4,
+        "final_score": 9.1
+      }
+    },
+    {
+      "event_id": 7,
+      "timestamp": "2026-02-28T13:44:16.669472",
+      "event_type": "swarm_completed",
+      "details": {
+        "status": "success",
+        "iterations": 1,
+        "initial_score": 5.4,
+        "final_score": 9.1,
+        "tests_passed": true
+      }
+    }
+  ],
+  "errors": [],
+  "duration_seconds": 65.407219
+}
